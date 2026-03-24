@@ -1,12 +1,28 @@
-GamePauser is a super lightweight tool that allows for pausing/unpausing of whitelisted applications.
-The idea being to use it for language learning in video games. When there's dialogue and you feel like you need more time to read, simply press the "pause" key and the software will freeze the threads that the game is running on.
-Some applications will crash when the threads are paused for too long, which is why the tool comes with a "pusle mode", that pauses and unpauses in intervals - to prevent crashing.
+# ⏸️ GamePauser
 
-Installation:
-Drop GamePauser.exe and whitelist.txt anywhere on your pc, preferrably in a unique folder and run the .exe.
-You can right click the GamePauser tray icon to see options such as:
-• Add foreground to whitelist (This automatically adds your latest fullscreen game to the whitelist)
-• Enable pusle mode (for games that might crash)
-• Open whitelist file (if there is no file it will ask to be created)
-• Exit (closes the application)
+**GamePauser** is a super lightweight utility designed to freeze and resume whitelisted applications instantly. 
 
+### Why use this?
+It was built primarily for **language learning in video games**. When dialogue appears and you need extra time to read or look up a word, simply hit the **Pause** key. The software freezes the game's threads, giving you all the time you need without the game world moving on.
+
+> [!TIP]
+> **Stability First:** Some games may crash if frozen for too long. GamePauser includes a **Pulse Mode** that alternates between pausing and unpausing at intervals to keep the process "alive" while remaining essentially frozen.
+
+---
+
+## 🚀 Installation
+1. Create a dedicated folder for the app (e.g., `C:\Tools\GamePauser`).
+2. Drop `GamePauser.exe` and `whitelist.txt` into that folder.
+3. Run `GamePauser.exe`
+
+---
+
+## 🛠️ How to Use
+Once running, the app lives in your **System Tray** (near the clock). Right-click the icon to access these features:
+
+* **Add foreground to whitelist:** Automatically adds the currently active window/game to your list.
+* **Enable Pulse Mode:** Switches to interval-pausing for games prone to crashing.
+* **Open whitelist file:** Opens your `whitelist.txt` for manual editing.
+* **Exit:** Fully closes the application and ensures all threads are resumed.
+
+**Default Hotkey:** `Pause/Break` key.
