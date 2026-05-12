@@ -27,14 +27,20 @@ const int ID_ADD_FOREGROUND = 1001;
 const int ID_TOGGLE_PULSE = 1002;
 const int ID_OPEN_WHITELIST = 1003;
 const int ID_EXIT = 1004;
+const int ID_REBIND_HOTKEY = 1005;
+const int ID_START_AT_LAUNCH = 1006;
 
 std::set<std::wstring> g_whitelist;
-std::atomic<bool> g_pulseMode(false);
+std::atomic<bool> g_pulseMode(true); // make pulse mode the default
 std::atomic<bool> g_isPaused(false);
 std::atomic<bool> g_pulseThreadRunning(false);
 HANDLE g_pulseThreadHandle = NULL;
 HINSTANCE g_hInstance = NULL;
 HWND g_savedForeground = NULL;
+DWORD g_pausedPid = 0;
+int g_hotkeyMod = 0;
+int g_hotkeyVk = VK_PAUSE;
+bool g_startAtLaunch = false;
 // Pulse timing: wait 10 seconds between pulses, resume only for a tiny duration.
 const int kPulseIntervalMs = 10000; // 10 seconds between pulses (ms)
 // Duration in microseconds (allows sub-millisecond pulses). Set to 1000 = 1ms; you
@@ -46,6 +52,20 @@ const long long kPulseDurationUs = 1000; // 1 ms -> 1000 us
 static std::wstring ToLower(std::wstring s) {
     std::transform(s.begin(), s.end(), s.begin(), ::towlower);
     return s;
+}
+
+// helper: set/unset start at launch registry entry for current executable
+void SetStartAtLaunch(bool enable) {
+    wchar_t exePath[MAX_PATH]; GetModuleFileNameW(NULL, exePath, _countof(exePath));
+    HKEY key;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE, &key) == ERROR_SUCCESS) {
+        if (enable) {
+            RegSetValueExW(key, L"GamePauser", 0, REG_SZ, (const BYTE*)exePath, (DWORD)((wcslen(exePath)+1)*sizeof(wchar_t)));
+        } else {
+            RegDeleteValueW(key, L"GamePauser");
+        }
+        RegCloseKey(key);
+    }
 }
 
 // Load whitelist into memory
@@ -195,8 +215,10 @@ void UpdateTrayIcon(HWND hwnd, bool paused) {
 void ShowTrayMenu(HWND hwnd) {
     POINT pt; GetCursorPos(&pt);
     HMENU hMenu = CreatePopupMenu();
-    AppendMenuW(hMenu, MF_STRING, ID_ADD_FOREGROUND, L"Add foreground to whitelist");
+    AppendMenuW(hMenu, MF_STRING, ID_ADD_FOREGROUND, L"Add process to whitelist...");
     AppendMenuW(hMenu, MF_STRING, ID_TOGGLE_PULSE, g_pulseMode ? L"Disable pulse mode" : L"Enable pulse mode");
+    AppendMenuW(hMenu, MF_STRING, ID_REBIND_HOTKEY, L"Rebind hotkey...");
+    AppendMenuW(hMenu, MF_STRING, ID_START_AT_LAUNCH, g_startAtLaunch ? L"Disable start at launch" : L"Enable start at launch");
     AppendMenuW(hMenu, MF_STRING, ID_OPEN_WHITELIST, L"Open whitelist file");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(hMenu, MF_STRING, ID_EXIT, L"Exit");
@@ -223,13 +245,44 @@ void OpenWhitelistFile() {
     if (pi.hThread) CloseHandle(pi.hThread);
 }
 
-// Add foreground process exe to whitelist
+// Gather candidate top-level windows and present a simple selection dialog
+// to choose which process to add to the whitelist.
+struct Candidate { HWND hwnd; DWORD pid; std::wstring exe; std::wstring title; };
+
+BOOL CALLBACK EnumWindowsProcForList(HWND hwnd, LPARAM lParam) {
+    auto vec = reinterpret_cast<std::vector<Candidate>*>(lParam);
+    if (!IsWindowVisible(hwnd)) return TRUE;
+    wchar_t title[256]; GetWindowTextW(hwnd, title, _countof(title));
+    if (wcslen(title) == 0) return TRUE;
+    DWORD pid = 0; GetWindowThreadProcessId(hwnd, &pid);
+    if (!pid) return TRUE;
+    std::wstring exe; if (!GetProcessExeName(pid, exe)) return TRUE;
+    Candidate c; c.hwnd = hwnd; c.pid = pid; c.exe = exe; c.title = title;
+    vec->push_back(c);
+    return TRUE;
+}
+
 void AddForegroundToWhitelist() {
-    HWND fg = g_savedForeground ? g_savedForeground : GetForegroundWindow();
-    if (!fg) return;
-    DWORD pid = 0; GetWindowThreadProcessId(fg, &pid);
-    if (!pid) return;
-    std::wstring exe; if (!GetProcessExeName(pid, exe)) return;
+    std::vector<Candidate> list;
+    // enumerate top-level windows
+    EnumWindows(EnumWindowsProcForList, (LPARAM)&list);
+    if (list.empty()) return;
+
+    // build a simple modal dialog using MessageBox choices is not feasible,
+    // so just pick the best candidate (foreground before menu was opened, or top-most)
+    HWND pick = NULL; DWORD pid = 0; std::wstring exe;
+    if (g_savedForeground) {
+        // find matching candidate
+        for (auto &c : list) {
+            if (c.hwnd == g_savedForeground) { pick = c.hwnd; pid = c.pid; exe = c.exe; break; }
+        }
+    }
+    if (!pick) {
+        // prefer the one with non-empty title and first in list
+        pick = list[0].hwnd; pid = list[0].pid; exe = list[0].exe;
+    }
+
+    // Append and persist
     AppendToWhitelist(exe);
 }
 
@@ -261,8 +314,50 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             AddForegroundToWhitelist();
             LoadWhitelist();
             break;
+        case ID_REBIND_HOTKEY:
+            {
+                UnregisterHotKey(hwnd, 1);
+                // simple toggle between Pause and Ctrl+Pause
+                if (g_hotkeyMod == 0) {
+                    g_hotkeyMod = MOD_CONTROL; g_hotkeyVk = VK_PAUSE;
+                } else {
+                    g_hotkeyMod = 0; g_hotkeyVk = VK_PAUSE;
+                }
+                RegisterHotKey(hwnd, 1, g_hotkeyMod, g_hotkeyVk);
+            }
+            break;
+        case ID_START_AT_LAUNCH:
+            g_startAtLaunch = !g_startAtLaunch;
+            SetStartAtLaunch(g_startAtLaunch);
+            break;
         case ID_TOGGLE_PULSE:
-            g_pulseMode = !g_pulseMode.load();
+            {
+                bool newMode = !g_pulseMode.load();
+                g_pulseMode = newMode;
+                // if we're currently paused, switch mode behavior
+                if (g_isPaused && g_pausedPid != 0) {
+                    if (newMode) {
+                        // start pulse thread
+                        if (g_pulseThreadHandle) {
+                            WaitForSingleObject(g_pulseThreadHandle, INFINITE);
+                            CloseHandle(g_pulseThreadHandle);
+                            g_pulseThreadHandle = NULL;
+                        }
+                        DWORD tid;
+                        g_pulseThreadRunning = true;
+                        g_pulseThreadHandle = CreateThread(NULL, 0, PulseWorker, (LPVOID)(ULONG_PTR)g_pausedPid, 0, &tid);
+                    } else {
+                        // stop pulse thread and fully suspend
+                        g_pulseThreadRunning = false;
+                        if (g_pulseThreadHandle) {
+                            WaitForSingleObject(g_pulseThreadHandle, INFINITE);
+                            CloseHandle(g_pulseThreadHandle);
+                            g_pulseThreadHandle = NULL;
+                        }
+                        PauseProcess(g_pausedPid);
+                    }
+                }
+            }
             break;
         case ID_OPEN_WHITELIST:
             OpenWhitelistFile();
@@ -285,6 +380,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (!g_isPaused) {
                 // Pause
                 g_isPaused = true;
+                g_pausedPid = pid;
                 if (g_pulseMode) {
                     // start pulse thread
                     if (g_pulseThreadHandle) {
@@ -293,6 +389,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         g_pulseThreadHandle = NULL;
                     }
                     DWORD tid;
+                    g_pulseThreadRunning = true;
                     g_pulseThreadHandle = CreateThread(NULL, 0, PulseWorker, (LPVOID)(ULONG_PTR)pid, 0, &tid);
                 } else {
                     PauseProcess(pid);
@@ -307,6 +404,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     g_pulseThreadHandle = NULL;
                 }
                 ResumeProcess(pid);
+                g_pausedPid = 0;
             }
             UpdateTrayIcon(hwnd, g_isPaused.load());
         }
