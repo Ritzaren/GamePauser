@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="GamePauser/GamePauser.vcxproj" />
+  <Project Path="GamePauser/GamePauser.vcxproj" Id="eab08198-e358-4d68-889c-be51826bcd40" />
 </Solution>
