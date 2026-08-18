@@ -1,4 +1,4 @@
-# ⏸️ GamePauser
+# GamePauser
 
 **GamePauser** is a super lightweight utility designed to freeze and resume whitelisted applications instantly. 
 
@@ -10,14 +10,14 @@ It was built primarily for **language learning in video games**. When dialogue a
 
 ---
 
-## 🚀 Installation
+## Installation
 1. Create a dedicated folder for the app (e.g., `C:\Tools\GamePauser`).
 2. Drop `GamePauser.exe` and `whitelist.txt` into that folder.
 3. Run `GamePauser.exe`
 
 ---
 
-## 🛠️ How to Use
+## How to Use
 Once running, the app lives in your **System Tray** (near the clock). Right-click the icon to access these features:
 
 * **Add foreground to whitelist:** Automatically adds the currently active window/game to your list.
